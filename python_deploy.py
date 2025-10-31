@@ -32,8 +32,8 @@ from shapely.ops import nearest_points
 
 
 # Shapefile Paths - UPDATE THESE
-ROADS_SHAPEFILE = r"D:\Users\n01621754\OneDrive - University of North Florida\Desktop\WSDOT RESEARCH\GIS WORKS\roads.shp"
-TRANSIT_STOPS_SHAPEFILE = r"D:\Users\n01621754\OneDrive - University of North Florida\Desktop\WSDOT RESEARCH\GIS WORKS\transit_stops.shp"
+ROADS_SHAPEFILE = r"data/roads.shp"
+TRANSIT_STOPS_SHAPEFILE = r"data/transit_stops.shp"
 
 # Google Maps API Configuration
 GOOGLE_API_KEY = "AIzaSyB7Khy5ec8OotFSO-4Eckjpqot6BxOLWBo"
