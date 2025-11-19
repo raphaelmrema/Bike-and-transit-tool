@@ -198,6 +198,58 @@ def _map_field(row_or_columns, candidates):
             return lower_map[lc]
     return None
 
+# =============================================================================
+# GPS TRACKING FUNCTIONALITY
+# =============================================================================
+
+class GPSTracker:
+    """Track and manage user GPS locations"""
+    def __init__(self):
+        self.user_locations = {}  # Store locations by user_id
+        self.location_history = {}  # Store location history by user_id
+        
+    def update_location(self, user_id, lat, lon, accuracy, timestamp=None):
+        """Update user's current location"""
+        if timestamp is None:
+            timestamp = datetime.datetime.now().isoformat()
+        
+        location_data = {
+            'lat': lat,
+            'lon': lon,
+            'accuracy': accuracy,
+            'timestamp': timestamp
+        }
+        
+        self.user_locations[user_id] = location_data
+        
+        # Store in history
+        if user_id not in self.location_history:
+            self.location_history[user_id] = []
+        self.location_history[user_id].append(location_data)
+        
+        # Keep only last 100 locations to prevent memory issues
+        if len(self.location_history[user_id]) > 100:
+            self.location_history[user_id] = self.location_history[user_id][-100:]
+        
+        return location_data
+    
+    def get_current_location(self, user_id):
+        """Get user's current location"""
+        return self.user_locations.get(user_id)
+    
+    def get_location_history(self, user_id, limit=10):
+        """Get user's location history"""
+        history = self.location_history.get(user_id, [])
+        return history[-limit:] if limit else history
+    
+    def clear_history(self, user_id):
+        """Clear location history for a user"""
+        if user_id in self.location_history:
+            self.location_history[user_id] = []
+
+# Initialize GPS tracker
+gps_tracker = GPSTracker()
+
 def classify_lts(facility_type, speed_limit, lanes):
     """Classify Level of Traffic Stress (LTS) from 1 (best) to 4 (worst)"""
     ft = str(facility_type or "").upper().strip()
@@ -1970,6 +2022,12 @@ class BikeBusBikeGoogleServer(http.server.SimpleHTTPRequestHandler):
                 
             elif self.path.startswith('/status'):
                 self.handle_status_request()
+            
+            elif self.path.startswith('/gps/location'):
+                self.handle_gps_location_request()
+                
+            elif self.path.startswith('/gps/history'):
+                self.handle_gps_history_request()
                 
             else:
                 return http.server.SimpleHTTPRequestHandler.do_GET(self)
@@ -2107,6 +2165,119 @@ class BikeBusBikeGoogleServer(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             print(f"Error handling status request: {e}")
             self.send_error(500, f"Status check failed: {str(e)}")
+    
+    def do_POST(self):
+        """Handle POST requests for GPS location updates"""
+        try:
+            if self.path.startswith('/gps/update'):
+                self.handle_gps_update()
+            else:
+                self.send_error(404, "Endpoint not found")
+        except Exception as e:
+            print(f"Error handling POST request: {e}")
+            self.send_error(500, f"Internal server error: {str(e)}")
+    
+    def handle_gps_update(self):
+        """Handle GPS location update from client"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            user_id = data.get('user_id', 'default_user')
+            lat = float(data.get('latitude'))
+            lon = float(data.get('longitude'))
+            accuracy = float(data.get('accuracy', 0))
+            
+            # Update location in tracker
+            location_data = gps_tracker.update_location(user_id, lat, lon, accuracy)
+            
+            response = {
+                "status": "success",
+                "message": "Location updated",
+                "location": location_data
+            }
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode())
+            
+        except Exception as e:
+            error_response = {
+                "status": "error",
+                "message": str(e)
+            }
+            self.send_response(400)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(error_response).encode())
+    
+    def handle_gps_location_request(self):
+        """Handle request to get current GPS location"""
+        try:
+            query = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(query)
+            user_id = params.get('user_id', ['default_user'])[0]
+            
+            location = gps_tracker.get_current_location(user_id)
+            
+            response = {
+                "status": "success",
+                "location": location if location else None
+            }
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(response, default=str).encode())
+            
+        except Exception as e:
+            error_response = {
+                "status": "error",
+                "message": str(e)
+            }
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(error_response).encode())
+    
+    def handle_gps_history_request(self):
+        """Handle request to get GPS location history"""
+        try:
+            query = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(query)
+            user_id = params.get('user_id', ['default_user'])[0]
+            limit = int(params.get('limit', ['10'])[0])
+            
+            history = gps_tracker.get_location_history(user_id, limit)
+            
+            response = {
+                "status": "success",
+                "history": history,
+                "count": len(history)
+            }
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(response, default=str).encode())
+            
+        except Exception as e:
+            error_response = {
+                "status": "error",
+                "message": str(e)
+            }
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(error_response).encode())
     
     
     def create_html_interface(self):
@@ -2819,14 +2990,53 @@ class BikeBusBikeGoogleServer(http.server.SimpleHTTPRequestHandler):
                 </div>
             </div>
             
+            <div id="gpsStatus" style="
+                margin: 15px 0;
+                padding: 10px;
+                background: #f8f9fa;
+                border-radius: 8px;
+                border: 1px solid #dee2e6;
+                display: none;
+            ">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 20px;">📍</span>
+                    <div style="flex: 1;">
+                        <div style="font-weight: bold; color: #27ae60;">GPS Tracking Active</div>
+                        <div id="gpsAccuracy" style="font-size: 12px; color: #666;"></div>
+                    </div>
+                </div>
+            </div>
+            
             <div class="form-group">
                 <label for="originInput">🚩 From (Origin):</label>
-                <input type="text" id="originInput" placeholder="Enter address or click map">
+                <div style="display: flex; gap: 5px;">
+                    <input type="text" id="originInput" placeholder="Enter address or click map" style="flex: 1;">
+                    <button onclick="useCurrentLocationAsOrigin()" style="
+                        padding: 8px 12px; 
+                        background: #4285f4; 
+                        color: white; 
+                        border: none; 
+                        border-radius: 4px; 
+                        cursor: pointer;
+                        font-size: 14px;
+                    " title="Use my current location">📍 Use GPS</button>
+                </div>
             </div>
             
             <div class="form-group">
                 <label for="destinationInput">🎯 To (Destination):</label>
-                <input type="text" id="destinationInput" placeholder="Enter address or click map">
+                <div style="display: flex; gap: 5px;">
+                    <input type="text" id="destinationInput" placeholder="Enter address or click map" style="flex: 1;">
+                    <button onclick="useCurrentLocationAsDestination()" style="
+                        padding: 8px 12px; 
+                        background: #4285f4; 
+                        color: white; 
+                        border: none; 
+                        border-radius: 4px; 
+                        cursor: pointer;
+                        font-size: 14px;
+                    " title="Use my current location">📍 Use GPS</button>
+                </div>
             </div>
             
             <div class="form-group">
@@ -2861,6 +3071,230 @@ class BikeBusBikeGoogleServer(http.server.SimpleHTTPRequestHandler):
         
         let originMarker = null, destinationMarker = null, routeLayersGroup = L.layerGroup().addTo(map);
         let currentRoutes = [], selectedRouteIndex = -1, clickCount = 0, originCoords = null, destinationCoords = null;
+        
+        // =============================================================================
+        // GPS TRACKING FUNCTIONALITY
+        // =============================================================================
+        
+        let userLocationMarker = null;
+        let userAccuracyCircle = null;
+        let watchId = null;
+        let isTrackingLocation = false;
+        const userId = 'user_' + Math.random().toString(36).substr(2, 9);
+        
+        // Create GPS tracking button
+        const gpsButton = L.control({{position: 'topleft'}});
+        gpsButton.onAdd = function(map) {{
+            const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+            div.innerHTML = `
+                <a href="#" id="gpsTrackBtn" title="Track my location" style="
+                    width: 34px; 
+                    height: 34px; 
+                    line-height: 34px; 
+                    display: block; 
+                    text-align: center; 
+                    text-decoration: none; 
+                    background: white;
+                    font-size: 18px;
+                ">📍</a>
+            `;
+            div.onclick = function(e) {{
+                e.preventDefault();
+                e.stopPropagation();
+                toggleGPSTracking();
+                return false;
+            }};
+            L.DomEvent.disableClickPropagation(div);
+            return div;
+        }};
+        gpsButton.addTo(map);
+        
+        // GPS Tracking functions
+        function toggleGPSTracking() {{
+            if (isTrackingLocation) {{
+                stopGPSTracking();
+            }} else {{
+                startGPSTracking();
+            }}
+        }}
+        
+        function startGPSTracking() {{
+            if (!navigator.geolocation) {{
+                alert('Geolocation is not supported by your browser');
+                return;
+            }}
+            
+            const btn = document.getElementById('gpsTrackBtn');
+            btn.style.background = '#4285f4';
+            btn.style.color = 'white';
+            btn.innerHTML = '⊙';
+            
+            // Show GPS status indicator
+            document.getElementById('gpsStatus').style.display = 'block';
+            
+            // Get initial position
+            navigator.geolocation.getCurrentPosition(
+                function(position) {{
+                    updateUserLocation(position);
+                    map.setView([position.coords.latitude, position.coords.longitude], 15);
+                }},
+                function(error) {{
+                    console.error('Error getting location:', error);
+                    alert('Unable to get your location: ' + error.message);
+                    stopGPSTracking();
+                }},
+                {{ enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }}
+            );
+            
+            // Start continuous tracking
+            watchId = navigator.geolocation.watchPosition(
+                updateUserLocation,
+                function(error) {{
+                    console.error('GPS tracking error:', error);
+                }},
+                {{ enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }}
+            );
+            
+            isTrackingLocation = true;
+        }}
+        
+        function stopGPSTracking() {{
+            if (watchId !== null) {{
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }}
+            
+            const btn = document.getElementById('gpsTrackBtn');
+            btn.style.background = 'white';
+            btn.style.color = 'black';
+            btn.innerHTML = '📍';
+            
+            // Hide GPS status indicator
+            document.getElementById('gpsStatus').style.display = 'none';
+            
+            // Keep the marker but stop updating
+            isTrackingLocation = false;
+        }}
+        
+        function updateUserLocation(position) {{
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+            
+            // Update GPS status indicator
+            const accuracyEl = document.getElementById('gpsAccuracy');
+            if (accuracyEl) {{
+                accuracyEl.textContent = `Accuracy: ±${{Math.round(accuracy)}}m | Lat: ${{lat.toFixed(5)}}, Lon: ${{lon.toFixed(5)}}`;
+            }}
+            
+            // Send location to server
+            fetch('/gps/update', {{
+                method: 'POST',
+                headers: {{
+                    'Content-Type': 'application/json'
+                }},
+                body: JSON.stringify({{
+                    user_id: userId,
+                    latitude: lat,
+                    longitude: lon,
+                    accuracy: accuracy
+                }})
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                console.log('Location updated:', data);
+            }})
+            .catch(error => {{
+                console.error('Error updating location:', error);
+            }});
+            
+            // Update marker on map
+            if (userLocationMarker === null) {{
+                // Create new marker
+                const icon = L.divIcon({{
+                    html: `<div style="
+                        width: 20px; 
+                        height: 20px; 
+                        background: #4285f4; 
+                        border: 3px solid white; 
+                        border-radius: 50%; 
+                        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+                    "></div>`,
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                }});
+                userLocationMarker = L.marker([lat, lon], {{icon: icon}}).addTo(map);
+                userLocationMarker.bindPopup(`<strong>Your Location</strong><br>Accuracy: ${{Math.round(accuracy)}}m`);
+            }} else {{
+                // Update existing marker
+                userLocationMarker.setLatLng([lat, lon]);
+                userLocationMarker.getPopup().setContent(`<strong>Your Location</strong><br>Accuracy: ${{Math.round(accuracy)}}m`);
+            }}
+            
+            // Update accuracy circle
+            if (userAccuracyCircle === null) {{
+                userAccuracyCircle = L.circle([lat, lon], {{
+                    radius: accuracy,
+                    color: '#4285f4',
+                    fillColor: '#4285f4',
+                    fillOpacity: 0.1,
+                    weight: 1
+                }}).addTo(map);
+            }} else {{
+                userAccuracyCircle.setLatLng([lat, lon]);
+                userAccuracyCircle.setRadius(accuracy);
+            }}
+        }}
+        
+        // Add "Use my location" button functionality
+        function useCurrentLocationAsOrigin() {{
+            if (userLocationMarker) {{
+                const latlng = userLocationMarker.getLatLng();
+                originCoords = latlng;
+                if (originMarker) map.removeLayer(originMarker);
+                originMarker = L.marker([latlng.lat, latlng.lng], {{
+                    icon: L.divIcon({{
+                        html: '<div style="background:#4285f4;width:24px;height:24px;border-radius:50%;border:3px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>',
+                        iconSize: [30, 30],
+                        iconAnchor: [15, 15]
+                    }})
+                }}).addTo(map);
+                originMarker.bindPopup('<strong>Start (Your Location)</strong>').openPopup();
+                document.getElementById('originInput').value = 'My Current Location';
+                clickCount = 1;
+            }} else {{
+                alert('Please enable GPS tracking first by clicking the 📍 button');
+                startGPSTracking();
+            }}
+        }}
+        
+        function useCurrentLocationAsDestination() {{
+            if (userLocationMarker) {{
+                const latlng = userLocationMarker.getLatLng();
+                destinationCoords = latlng;
+                if (destinationMarker) map.removeLayer(destinationMarker);
+                destinationMarker = L.marker([latlng.lat, latlng.lng], {{
+                    icon: L.divIcon({{
+                        html: '<div style="background:#e74c3c;width:24px;height:24px;border-radius:50%;border:3px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>',
+                        iconSize: [30, 30],
+                        iconAnchor: [15, 15]
+                    }})
+                }}).addTo(map);
+                destinationMarker.bindPopup('<strong>End (Your Location)</strong>').openPopup();
+                document.getElementById('destinationInput').value = 'My Current Location';
+                
+                if (originCoords) {{
+                    performRouteAnalysis();
+                }}
+            }} else {{
+                alert('Please enable GPS tracking first by clicking the 📍 button');
+                startGPSTracking();
+            }}
+        }}
+        
+        // =============================================================================
+        // END GPS TRACKING FUNCTIONALITY
+        // =============================================================================
         
         // Facility type to color mapping
         const facilityColors = {{
@@ -3892,5 +4326,4 @@ print(" - GeoPandas segment analysis")
 print(" - Google Maps transit routing")
 print(" - Real-time GTFS departures")
 print(" - Smart transit fallback")
-
 print(" - Complete web interface")
