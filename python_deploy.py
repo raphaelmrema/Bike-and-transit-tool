@@ -36,7 +36,7 @@ ROADS_SHAPEFILE = r"data/roads.shp"
 TRANSIT_STOPS_SHAPEFILE = r"data/transit_stops.shp"
 
 # Google Maps API Configuration
-GOOGLE_API_KEY = "AIzaSyB7Khy5ec8OotFSO-4Eckjpqot6BxOLWBo"
+GOOGLE_API_KEY = "AIzaSyAWeDITfsIR09cbUYDuA_WxuAUE0-awk5o"
 
 # Bicycle Configuration
 BIKE_SPEED_MPH = 11  # Average bicycle speed
@@ -4327,3 +4327,4 @@ print(" - Google Maps transit routing")
 print(" - Real-time GTFS departures")
 print(" - Smart transit fallback")
 print(" - Complete web interface")
+
