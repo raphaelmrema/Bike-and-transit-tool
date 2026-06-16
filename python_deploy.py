@@ -36,7 +36,7 @@ ROADS_SHAPEFILE = r"data/roads.shp"
 TRANSIT_STOPS_SHAPEFILE = r"data/transit_stops.shp"
 
 # Google Maps API Configuration
-GOOGLE_API_KEY = "AIzaSyAWeDITfsIR09cbUYDuA_WxuAUE0-awk5o"
+GOOGLE_API_KEY = "AIzaSyBfS31-_xrNVTBPfCvE0L84qjuLAk_zyHg"
 
 # Bicycle Configuration
 BIKE_SPEED_MPH = 11  # Average bicycle speed
